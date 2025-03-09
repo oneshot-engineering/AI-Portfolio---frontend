@@ -25,26 +25,34 @@ interface Analyst {
   status: "pending" | "running" | "complete";
 }
 
-const AIAnalysis: React.FC<AIAnalysisProps> = ({ symbol, onComplete }) => {
-  // Initialize all analysts in running state immediately
-  const [currentAnalysts, setCurrentAnalysts] = useState<Analyst[]>(() => {
-    return Object.entries(mockAnalysisData.analyst_signals)
-      .filter(([key]) => key !== "risk_management_agent")
-      .map(([name]) => ({
-        name: name
-          .split("_")
-          .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-          .join(" ")
-          .replace("Agent", ""),
-        signal: "neutral",
-        confidence: 0,
-        reasoning: "Analysis in progress...",
-        status: "running",
-      }));
-  });
+const getInitialAnalysts = () => {
+  return Object.entries(mockAnalysisData.analyst_signals)
+    .filter(([key]) => key !== "risk_management_agent")
+    .map(([name]) => ({
+      name: name
+        .split("_")
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(" ")
+        .replace("Agent", ""),
+      signal: "neutral",
+      confidence: 0,
+      reasoning: "Analysis in progress...",
+      status: "running",
+    }));
+};
 
+const AIAnalysis: React.FC<AIAnalysisProps> = ({ symbol, onComplete }) => {
+  const [currentAnalysts, setCurrentAnalysts] =
+    useState<Analyst[]>(getInitialAnalysts);
   const [showSummary, setShowSummary] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState(25);
+
+  // Reset state when symbol changes
+  useEffect(() => {
+    setCurrentAnalysts(getInitialAnalysts());
+    setShowSummary(false);
+    setAnalysisProgress(25);
+  }, [symbol]);
 
   useEffect(() => {
     const fetchAnalysis = async () => {
@@ -183,7 +191,7 @@ const AIAnalysis: React.FC<AIAnalysisProps> = ({ symbol, onComplete }) => {
         <AnimatePresence mode="sync">
           {currentAnalysts.map((analyst, index) => (
             <motion.div
-              key={`${analyst.name}-${index}`}
+              key={`${analyst.name}-${symbol}-${index}`}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
@@ -230,7 +238,7 @@ const AIAnalysis: React.FC<AIAnalysisProps> = ({ symbol, onComplete }) => {
       <AnimatePresence mode="sync">
         {showSummary && mockAnalysisData.decisions[symbol] && (
           <motion.div
-            key="summary"
+            key={`summary-${symbol}`}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
