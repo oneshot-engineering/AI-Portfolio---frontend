@@ -1,101 +1,138 @@
-import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { CheckCircle2, Brain, AlertTriangle, TrendingUp, TrendingDown, Minus } from 'lucide-react';
-import axios from 'axios';
-import { mockAnalysts, mockAnalysisSummary } from '../data/mockData';
-
-interface Analyst {
-  name: string;
-  signal: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
-  confidence: number;
-  status: 'pending' | 'running' | 'complete';
-}
+import React, { useState, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  CheckCircle2,
+  Brain,
+  TrendingUp,
+  TrendingDown,
+  Minus,
+} from "lucide-react";
+import axios from "axios";
+import { mockAnalysisData } from "../data/mockData";
 
 interface AIAnalysisProps {
   symbol: string;
   onComplete: () => void;
 }
 
-interface AnalysisResponse {
-  analysts: Analyst[];
-  summary: {
-    sentiment: string;
-    confidence: number;
-    action: string;
-    description: string;
-  };
+type Signal = "bullish" | "bearish" | "neutral";
+
+interface Analyst {
+  name: string;
+  signal: Signal;
+  confidence: number;
+  reasoning: string;
+  status: "pending" | "running" | "complete";
 }
 
 const AIAnalysis: React.FC<AIAnalysisProps> = ({ symbol, onComplete }) => {
-  const [currentAnalysts, setCurrentAnalysts] = useState<Analyst[]>([]);
+  // Initialize all analysts in running state immediately
+  const [currentAnalysts, setCurrentAnalysts] = useState<Analyst[]>(() => {
+    return Object.entries(mockAnalysisData.analyst_signals)
+      .filter(([key]) => key !== "risk_management_agent")
+      .map(([name]) => ({
+        name: name
+          .split("_")
+          .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+          .join(" ")
+          .replace("Agent", ""),
+        signal: "neutral",
+        confidence: 0,
+        reasoning: "Analysis in progress...",
+        status: "running",
+      }));
+  });
+
   const [showSummary, setShowSummary] = useState(false);
-  const [analysisProgress, setAnalysisProgress] = useState(0);
-  const [summary, setSummary] = useState<AnalysisResponse['summary'] | null>(null);
+  const [analysisProgress, setAnalysisProgress] = useState(25);
 
   useEffect(() => {
-    const simulateAnalysis = (analysts: Analyst[]) => {
-      let currentIndex = 0;
-      const interval = setInterval(() => {
-        if (currentIndex < analysts.length) {
-          setCurrentAnalysts(prev => {
-            const newAnalysts = [...prev];
-            if (!newAnalysts[currentIndex]) {
-              newAnalysts[currentIndex] = {
-                ...analysts[currentIndex],
-                status: 'running'
-              };
-            }
-            return newAnalysts;
-          });
-
-          setTimeout(() => {
-            setCurrentAnalysts(prev => {
-              const newAnalysts = [...prev];
-              if (newAnalysts[currentIndex]) {
-                newAnalysts[currentIndex] = {
-                  ...newAnalysts[currentIndex],
-                  status: 'complete'
-                };
-              }
-              return newAnalysts;
-            });
-            setAnalysisProgress((currentIndex + 1) / analysts.length * 100);
-          }, Math.random() * 1000 + 500);
-
-          currentIndex++;
-        } else {
-          clearInterval(interval);
-          setTimeout(() => {
-            setSummary(mockAnalysisSummary);
-            setShowSummary(true);
-            onComplete();
-          }, 1000);
-        }
-      }, 300);
-
-      return () => clearInterval(interval);
-    };
-
     const fetchAnalysis = async () => {
       try {
-        const response = await axios.get<AnalysisResponse>(`http://127.0.0.1:5000/run-hedge-fund?tickers=${symbol}`);
-        const { analysts, summary } = response.data;
-        simulateAnalysis(analysts);
-        setSummary(summary);
+        setAnalysisProgress(50);
+        const response = await axios.get(
+          `http://127.0.0.1:5000/run-hedge-fund?tickers=${symbol}`
+        );
+
+        let analysisData;
+        try {
+          // Parse response data if it's a string
+          analysisData =
+            typeof response.data === "string"
+              ? JSON.parse(response.data)
+              : response.data;
+
+          if (!analysisData?.analyst_signals) {
+            throw new Error("Invalid response data structure");
+          }
+
+          // Update analysts with real data
+          const updatedAnalysts = Object.entries(analysisData.analyst_signals)
+            .filter(([key]) => key !== "risk_management_agent")
+            .map(([name, data]) => ({
+              name: name
+                .split("_")
+                .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+                .join(" ")
+                .replace("Agent", ""),
+              signal: data[symbol]?.signal || "neutral",
+              confidence: data[symbol]?.confidence || 0,
+              reasoning:
+                typeof data[symbol]?.reasoning === "string"
+                  ? data[symbol].reasoning
+                  : JSON.stringify(data[symbol]?.reasoning),
+              status: "complete" as const,
+            }));
+
+          setAnalysisProgress(100);
+          setCurrentAnalysts(updatedAnalysts);
+          setShowSummary(true);
+          onComplete();
+        } catch (parseError) {
+          console.warn("Failed to parse response data:", parseError);
+          fallbackToMockData();
+        }
       } catch (err) {
-        console.warn('Failed to fetch analysis, using mock data:', err);
-        simulateAnalysis(mockAnalysts);
+        console.warn("Failed to fetch analysis:", err);
+        fallbackToMockData();
       }
     };
 
-    fetchAnalysis();
-  }, [symbol]);
+    const fallbackToMockData = () => {
+      // Use mock data after a short delay to simulate response
+      setTimeout(() => {
+        const mockAnalysts = Object.entries(mockAnalysisData.analyst_signals)
+          .filter(([key]) => key !== "risk_management_agent")
+          .map(([name, data]) => ({
+            name: name
+              .split("_")
+              .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+              .join(" ")
+              .replace("Agent", ""),
+            signal: data[symbol]?.signal || "neutral",
+            confidence: data[symbol]?.confidence || 0,
+            reasoning:
+              typeof data[symbol]?.reasoning === "string"
+                ? data[symbol].reasoning
+                : JSON.stringify(data[symbol]?.reasoning),
+            status: "complete" as const,
+          }));
 
-  const getSignalIcon = (signal: string) => {
+        setAnalysisProgress(100);
+        setCurrentAnalysts(mockAnalysts);
+        setShowSummary(true);
+        onComplete();
+      }, 2000);
+    };
+
+    fetchAnalysis();
+  }, [symbol, onComplete]);
+
+  const getSignalIcon = (signal: Signal) => {
     switch (signal) {
-      case 'BULLISH':
+      case "bullish":
         return <TrendingUp className="w-4 h-4 text-green-400" />;
-      case 'BEARISH':
+      case "bearish":
         return <TrendingDown className="w-4 h-4 text-red-400" />;
       default:
         return <Minus className="w-4 h-4 text-yellow-400" />;
@@ -104,9 +141,9 @@ const AIAnalysis: React.FC<AIAnalysisProps> = ({ symbol, onComplete }) => {
 
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case 'complete':
+      case "complete":
         return <CheckCircle2 className="w-4 h-4 text-green-400" />;
-      case 'running':
+      case "running":
         return (
           <motion.div
             animate={{ rotate: 360 }}
@@ -117,6 +154,17 @@ const AIAnalysis: React.FC<AIAnalysisProps> = ({ symbol, onComplete }) => {
         );
       default:
         return <div className="w-4 h-4" />;
+    }
+  };
+
+  const getSignalColor = (signal: Signal) => {
+    switch (signal) {
+      case "bullish":
+        return "text-green-400";
+      case "bearish":
+        return "text-red-400";
+      default:
+        return "text-yellow-400";
     }
   };
 
@@ -137,48 +185,50 @@ const AIAnalysis: React.FC<AIAnalysisProps> = ({ symbol, onComplete }) => {
             <motion.div
               key={`${analyst.name}-${index}`}
               initial={{ opacity: 0, y: 20 }}
-              animate={{ 
-                opacity: analyst.status !== 'pending' ? 1 : 0,
-                y: analyst.status !== 'pending' ? 0 : 20
-              }}
+              animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
               className={`p-4 rounded-xl backdrop-blur-xl border transition-all duration-300 ${
-                analyst.status === 'complete'
-                  ? 'bg-white/5 border-white/10'
-                  : 'bg-blue-500/5 border-blue-500/20'
+                analyst.status === "complete"
+                  ? "bg-white/5 border-white/10"
+                  : "bg-blue-500/5 border-blue-500/20"
               }`}
             >
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center space-x-3">
                   {getStatusIcon(analyst.status)}
                   <span className="text-sm font-medium">{analyst.name}</span>
                 </div>
-                {analyst.status === 'complete' && (
+                {analyst.status === "complete" && (
                   <motion.div
                     initial={{ opacity: 0, scale: 0.5 }}
                     animate={{ opacity: 1, scale: 1 }}
                     className="flex items-center space-x-2"
                   >
                     {getSignalIcon(analyst.signal)}
-                    <span className={`text-sm ${
-                      analyst.signal === 'BULLISH' 
-                        ? 'text-green-400' 
-                        : analyst.signal === 'BEARISH' 
-                          ? 'text-red-400' 
-                          : 'text-yellow-400'
-                    }`}>
+                    <span
+                      className={`text-sm ${getSignalColor(analyst.signal)}`}
+                    >
                       {analyst.confidence}%
                     </span>
                   </motion.div>
                 )}
               </div>
+              {analyst.status === "complete" && (
+                <motion.p
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="text-xs text-white/60 mt-2 line-clamp-2"
+                >
+                  {analyst.reasoning}
+                </motion.p>
+              )}
             </motion.div>
           ))}
         </AnimatePresence>
       </div>
 
       <AnimatePresence mode="sync">
-        {showSummary && summary && (
+        {showSummary && mockAnalysisData.decisions[symbol] && (
           <motion.div
             key="summary"
             initial={{ opacity: 0, y: 20 }}
@@ -191,27 +241,21 @@ const AIAnalysis: React.FC<AIAnalysisProps> = ({ symbol, onComplete }) => {
             </h3>
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <span className="text-white/60">Overall Sentiment</span>
-                <span className={`font-medium ${
-                  summary.sentiment === 'BULLISH' 
-                    ? 'text-green-400' 
-                    : summary.sentiment === 'BEARISH'
-                      ? 'text-red-400'
-                      : 'text-yellow-400'
-                }`}>
-                  {summary.sentiment}
+                <span className="text-white/60">Recommended Action</span>
+                <span className="text-yellow-400 font-medium uppercase">
+                  {mockAnalysisData.decisions[symbol].action}
                 </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-white/60">Confidence Level</span>
-                <span className="text-white/80 font-medium">{summary.confidence}%</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-white/60">Recommended Action</span>
-                <span className="text-yellow-400 font-medium">{summary.action}</span>
+                <span className="text-white/80 font-medium">
+                  {mockAnalysisData.decisions[symbol].confidence}%
+                </span>
               </div>
               <div className="mt-4 p-4 bg-white/5 rounded-lg border border-white/10">
-                <p className="text-sm text-white/80">{summary.description}</p>
+                <p className="text-sm text-white/80">
+                  {mockAnalysisData.decisions[symbol].reasoning}
+                </p>
               </div>
             </div>
           </motion.div>
