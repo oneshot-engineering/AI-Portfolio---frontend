@@ -6,6 +6,7 @@ import {
   TrendingUp,
   TrendingDown,
   Minus,
+  X,
 } from "lucide-react";
 import axios from "axios";
 import { mockAnalysisData } from "../data/mockData";
@@ -41,17 +42,39 @@ const getInitialAnalysts = () => {
     }));
 };
 
+const formatReasoning = (reasoning: string): string => {
+  try {
+    const parsed = JSON.parse(reasoning);
+    if (typeof parsed === "object") {
+      if ("financial_health_signal" in parsed) {
+        return `Financial Health: ${parsed.financial_health_signal.details}`;
+      }
+      if ("dcf_analysis" in parsed) {
+        return parsed.dcf_analysis.details;
+      }
+      const firstValue = Object.values(parsed)[0];
+      return typeof firstValue === "object"
+        ? firstValue.details || firstValue.signal
+        : firstValue;
+    }
+    return reasoning;
+  } catch {
+    return reasoning;
+  }
+};
+
 const AIAnalysis: React.FC<AIAnalysisProps> = ({ symbol, onComplete }) => {
   const [currentAnalysts, setCurrentAnalysts] =
     useState<Analyst[]>(getInitialAnalysts);
   const [showSummary, setShowSummary] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState(25);
+  const [selectedAnalyst, setSelectedAnalyst] = useState<Analyst | null>(null);
 
-  // Reset state when symbol changes
   useEffect(() => {
     setCurrentAnalysts(getInitialAnalysts());
     setShowSummary(false);
     setAnalysisProgress(25);
+    setSelectedAnalyst(null);
   }, [symbol]);
 
   useEffect(() => {
@@ -64,7 +87,6 @@ const AIAnalysis: React.FC<AIAnalysisProps> = ({ symbol, onComplete }) => {
 
         let analysisData;
         try {
-          // Parse response data if it's a string
           analysisData =
             typeof response.data === "string"
               ? JSON.parse(response.data)
@@ -74,7 +96,6 @@ const AIAnalysis: React.FC<AIAnalysisProps> = ({ symbol, onComplete }) => {
             throw new Error("Invalid response data structure");
           }
 
-          // Update analysts with real data
           const updatedAnalysts = Object.entries(analysisData.analyst_signals)
             .filter(([key]) => key !== "risk_management_agent")
             .map(([name, data]) => ({
@@ -84,11 +105,12 @@ const AIAnalysis: React.FC<AIAnalysisProps> = ({ symbol, onComplete }) => {
                 .join(" ")
                 .replace("Agent", ""),
               signal: data[symbol]?.signal || "neutral",
-              confidence: data[symbol]?.confidence || 0,
-              reasoning:
+              confidence: Number(data[symbol]?.confidence || 0).toFixed(2),
+              reasoning: formatReasoning(
                 typeof data[symbol]?.reasoning === "string"
                   ? data[symbol].reasoning
-                  : JSON.stringify(data[symbol]?.reasoning),
+                  : JSON.stringify(data[symbol]?.reasoning)
+              ),
               status: "complete" as const,
             }));
 
@@ -107,7 +129,6 @@ const AIAnalysis: React.FC<AIAnalysisProps> = ({ symbol, onComplete }) => {
     };
 
     const fallbackToMockData = () => {
-      // Use mock data after a short delay to simulate response
       setTimeout(() => {
         const mockAnalysts = Object.entries(mockAnalysisData.analyst_signals)
           .filter(([key]) => key !== "risk_management_agent")
@@ -118,11 +139,12 @@ const AIAnalysis: React.FC<AIAnalysisProps> = ({ symbol, onComplete }) => {
               .join(" ")
               .replace("Agent", ""),
             signal: data[symbol]?.signal || "neutral",
-            confidence: data[symbol]?.confidence || 0,
-            reasoning:
+            confidence: Number(data[symbol]?.confidence || 0).toFixed(2),
+            reasoning: formatReasoning(
               typeof data[symbol]?.reasoning === "string"
                 ? data[symbol].reasoning
-                : JSON.stringify(data[symbol]?.reasoning),
+                : JSON.stringify(data[symbol]?.reasoning)
+            ),
             status: "complete" as const,
           }));
 
@@ -195,9 +217,12 @@ const AIAnalysis: React.FC<AIAnalysisProps> = ({ symbol, onComplete }) => {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className={`p-4 rounded-xl backdrop-blur-xl border transition-all duration-300 ${
+              onClick={() =>
+                analyst.status === "complete" && setSelectedAnalyst(analyst)
+              }
+              className={`group relative p-4 rounded-xl backdrop-blur-xl border transition-all duration-300 cursor-pointer ${
                 analyst.status === "complete"
-                  ? "bg-white/5 border-white/10"
+                  ? "bg-white/5 border-white/10 hover:bg-white/10"
                   : "bg-blue-500/5 border-blue-500/20"
               }`}
             >
@@ -257,7 +282,10 @@ const AIAnalysis: React.FC<AIAnalysisProps> = ({ symbol, onComplete }) => {
               <div className="flex items-center justify-between">
                 <span className="text-white/60">Confidence Level</span>
                 <span className="text-white/80 font-medium">
-                  {mockAnalysisData.decisions[symbol].confidence}%
+                  {Number(
+                    mockAnalysisData.decisions[symbol].confidence
+                  ).toFixed(2)}
+                  %
                 </span>
               </div>
               <div className="mt-4 p-4 bg-white/5 rounded-lg border border-white/10">
@@ -266,6 +294,56 @@ const AIAnalysis: React.FC<AIAnalysisProps> = ({ symbol, onComplete }) => {
                 </p>
               </div>
             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {selectedAnalyst && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            onClick={() => setSelectedAnalyst(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-gray-900/95 backdrop-blur-xl rounded-xl border border-white/10 p-6 max-w-lg w-full shadow-2xl"
+            >
+              <div className="flex justify-between items-center mb-4">
+                <div className="flex items-center space-x-3">
+                  {getStatusIcon(selectedAnalyst.status)}
+                  <h3 className="text-lg font-semibold">
+                    {selectedAnalyst.name}
+                  </h3>
+                </div>
+                <button
+                  onClick={() => setSelectedAnalyst(null)}
+                  className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="flex items-center space-x-2 mb-4">
+                {getSignalIcon(selectedAnalyst.signal)}
+                <span
+                  className={`${getSignalColor(
+                    selectedAnalyst.signal
+                  )} font-medium`}
+                >
+                  {selectedAnalyst.confidence}% Confidence
+                </span>
+              </div>
+              <div className="bg-white/5 rounded-lg p-4 border border-white/10">
+                <p className="text-sm text-white/80 whitespace-pre-wrap">
+                  {selectedAnalyst.reasoning}
+                </p>
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
